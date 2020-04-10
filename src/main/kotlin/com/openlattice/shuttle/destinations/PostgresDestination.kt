@@ -192,9 +192,9 @@ class PostgresDestination(
     ): Long {
         val sw = Stopwatch.createStarted()
         val dataEdgeKeys = data.map {
-            val srcDataKey = EntityDataKey(it.src.entitySetId, entityKeyIds[it.src])
-            val dstDataKey = EntityDataKey(it.dst.entitySetId, entityKeyIds[it.dst])
-            val edgeDataKey = EntityDataKey(it.key.entitySetId, entityKeyIds[it.key])
+            val srcDataKey = EntityDataKey(it.src.entitySetId,  entityKeyIds.getValue(it.src))
+            val dstDataKey = EntityDataKey(it.dst.entitySetId,  entityKeyIds.getValue(it.dst))
+            val edgeDataKey = EntityDataKey(it.key.entitySetId, entityKeyIds.getValue(it.key))
             DataEdgeKey(srcDataKey, dstDataKey, edgeDataKey)
         }.toSet()
         val numCreatedEdges = createEdges(dataEdgeKeys)

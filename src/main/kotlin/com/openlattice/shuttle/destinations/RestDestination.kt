@@ -60,9 +60,9 @@ class RestDestination(
     ): Long {
         val entities = data.map { Entity(it.key, it.details) }
         val edges = data.map {
-            val srcDataKey = EntityDataKey(it.src.entitySetId, entityKeyIds[it.src])
-            val dstDataKey = EntityDataKey(it.dst.entitySetId, entityKeyIds[it.dst])
-            val edgeDataKey = EntityDataKey(it.key.entitySetId, entityKeyIds[it.key])
+            val srcDataKey = EntityDataKey(it.src.entitySetId,  entityKeyIds.getValue(it.src))
+            val dstDataKey = EntityDataKey(it.dst.entitySetId,  entityKeyIds.getValue(it.dst))
+            val edgeDataKey = EntityDataKey(it.key.entitySetId, entityKeyIds.getValue(it.key))
             DataEdgeKey(srcDataKey, dstDataKey, edgeDataKey)
         }.toSet()
 
