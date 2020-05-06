@@ -145,13 +145,18 @@ class ShuttleServicesPod {
     }
 
     @Bean(name = ["conductorConfiguration"])
-    @Profile(ConfigurationConstants.Profiles.AWS_CONFIGURATION_PROFILE, ConfigurationConstants.Profiles.AWS_TESTING_PROFILE)
+    @Profile(
+            ConfigurationConstants.Profiles.AWS_CONFIGURATION_PROFILE,
+            ConfigurationConstants.Profiles.AWS_TESTING_PROFILE
+    )
     @Throws(IOException::class)
     fun getAwsConductorConfiguration(): ConductorConfiguration {
-        val config = ResourceConfigurationLoader.loadConfigurationFromS3(s3,
+        val config = ResourceConfigurationLoader.loadConfigurationFromS3(
+                s3,
                 awsLaunchConfig!!.bucket,
                 awsLaunchConfig!!.folder,
-                ConductorConfiguration::class.java)
+                ConductorConfiguration::class.java
+        )
 
         logger.info("Using aws conductor configuration: {}", config)
         return config
@@ -204,7 +209,8 @@ class ShuttleServicesPod {
                 principalService(),
                 phoneNumberService(),
                 partitionManager(),
-                assembler())
+                assembler()
+        )
     }
 
     @Bean
@@ -262,13 +268,15 @@ class ShuttleServicesPod {
 
     @Bean
     fun assemblerConnectionManager(): AssemblerConnectionManager {
-        return AssemblerConnectionManager(assemblerConfiguration,
+        return AssemblerConnectionManager(
+                assemblerConfiguration,
                 hds,
                 principalService(),
                 organizationsManager(),
                 dbcs(),
                 eventBus,
-                metricRegistry)
+                metricRegistry
+        )
     }
 
     @Bean
@@ -285,18 +293,25 @@ class ShuttleServicesPod {
     @Profile(ConfigurationConstants.Profiles.LOCAL_CONFIGURATION_PROFILE)
     @Throws(IOException::class)
     fun organizationLocalBootstrapDependencies(): OrganizationsInitializationDependencies {
-        return OrganizationsInitializationDependencies(organizationsManager(),
+        return OrganizationsInitializationDependencies(
+                organizationsManager(),
                 principalService(),
-                getLocalConductorConfiguration())
+                getLocalConductorConfiguration()
+        )
     }
 
     @Bean
-    @Profile(ConfigurationConstants.Profiles.AWS_CONFIGURATION_PROFILE, ConfigurationConstants.Profiles.AWS_TESTING_PROFILE)
+    @Profile(
+            ConfigurationConstants.Profiles.AWS_CONFIGURATION_PROFILE,
+            ConfigurationConstants.Profiles.AWS_TESTING_PROFILE
+    )
     @Throws(IOException::class)
     fun organizationAwsBootstrapDependencies(): OrganizationsInitializationDependencies {
-        return OrganizationsInitializationDependencies(organizationsManager(),
+        return OrganizationsInitializationDependencies(
+                organizationsManager(),
                 principalService(),
-                getAwsConductorConfiguration())
+                getAwsConductorConfiguration()
+        )
     }
 
     @Bean
@@ -328,7 +343,8 @@ class ShuttleServicesPod {
             hazelcastInstance,
             aclKeyReservationService(),
             authorizationManager(),
-            eventBus)
+            eventBus
+    )
 
     @Bean
     fun idGenerationService() = HazelcastIdGenerationService(hazelcastClientProvider, executorService)
@@ -337,11 +353,13 @@ class ShuttleServicesPod {
     internal fun partitionManager() = PartitionManager(hazelcastInstance, hds)
 
     @Bean
-    fun idService() = PostgresEntityKeyIdService(hazelcastClientProvider,
+    fun idService() = PostgresEntityKeyIdService(
+            hazelcastClientProvider,
             executorService,
             hds,
             idGenerationService(),
-            partitionManager())
+            partitionManager()
+    )
 
     @Bean
     fun pgEdmManager() = PostgresEdmManager(hds, hazelcastInstance)
@@ -383,6 +401,7 @@ class ShuttleServicesPod {
         return AwsDataSinkService(
                 partitionManager(),
                 byteBlobDataManager,
+                hds,
                 hds
         )
     }
@@ -397,7 +416,8 @@ class ShuttleServicesPod {
                 entitySetManager(),
                 aclKeyReservationService(),
                 awsDataSinkService(),
-                blackbox)
+                blackbox
+        )
     }
 
     @PostConstruct

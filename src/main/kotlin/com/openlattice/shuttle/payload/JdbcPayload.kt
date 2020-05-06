@@ -10,10 +10,12 @@ import java.sql.SQLException
 import java.sql.Timestamp
 import java.time.OffsetDateTime
 import java.time.ZoneId
+import java.util.TimeZone
 
 private val logger = LoggerFactory.getLogger(JdbcPayload::class.java)
 const val DEFAULT_PERMITS_PER_SECOND = 10_000.0
 internal const val DEFAULT_FETCH_SIZE = 50000
+
 
 /**
  *
@@ -33,6 +35,8 @@ class JdbcPayload @JvmOverloads constructor(
     private lateinit var columns: List<String>
 
     override fun getPayload(): BasePostgresIterable<Map<String, Any?>> {
+        TimeZone.setDefault(TimeZone.getTimeZone("UTC"));
+
         return BasePostgresIterable(StatementHolderSupplier(hds, sql, fetchSize)) { rs ->
             if (!::columns.isInitialized) {
                 columns = getColumnNames(rs)

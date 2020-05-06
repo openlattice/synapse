@@ -57,7 +57,8 @@ class ShuttleCliOptions {
         const val SMTP_SERVER = "smtp-server"
         const val SMTP_SERVER_PORT = "smtp-server-port"
         const val THREADS = "threads"
-        const val S3_ORIGIN_EXPECTED_ARGS_COUNT = 3
+        const val S3_ORIGIN_MAXIMUM_ARGS_COUNT = 4
+        const val S3_ORIGIN_MINIMUM_ARGS_COUNT = 3
         const val LOCAL_ORIGIN_EXPECTED_ARGS_COUNT = 2
 
         private val options = Options()
@@ -104,17 +105,17 @@ class ShuttleCliOptions {
                 .argName("file")
                 .build()
 
-        // --data-origin    S3       region      bucketName
+        // --data-origin    S3       region      bucketName     file prefix or top level folder name
         // --data-origin    local    filepath
         private val dataOriginOption = Option.builder()
                 .longOpt(DATA_ORIGIN)
                 .hasArg(true)
                 .desc("Source location of the data to be integrated\n" +
                         " Current options are:\n" +
-                        "     S3 <S3 endpoint> <AWS Region> <S3 bucket name>\n" +
+                        "     S3 <S3 endpoint> <AWS Region> <S3 bucket name> <folder or file prefix in bucket>\n" +
                         "     local <path to a data file>")
                 .argName("data origin")
-                .numberOfArgs(S3_ORIGIN_EXPECTED_ARGS_COUNT)
+                .numberOfArgs( S3_ORIGIN_MAXIMUM_ARGS_COUNT)
                 .build()
 
         private val datasourceOption = Option.builder()
@@ -167,8 +168,8 @@ class ShuttleCliOptions {
 
         private val xmlOption = Option.builder()
                 .longOpt(XML)
-                .desc("Directory of XML files to use as the datasource for a specific flight.")
-                .hasArg(true)
+                .optionalArg(true)
+                .desc("Directory of XML files to use as the datasource for a specific flight. If --data-origin S3 is provided then this will use the S3 data origin as the source directory")
                 .argName("directory")
                 .build()
 

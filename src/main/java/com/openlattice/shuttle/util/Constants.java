@@ -48,8 +48,10 @@ public final class Constants {
     public static final String COMPARISON          = "comparison";
     public static final String TIMEZONE            = "timezone";
     public static final String OPERATOR            = "operator";
-    public static final TimeZone DEFAULT_TIMEZONE  = TimeZones.America_NewYork;
+    public static final TimeZone DEFAULT_TIMEZONE  = TimeZones.UTC;
     public static final String LENGTH              = "length";
     public static final String PRE                 = "pre";
     public static final String CUTOFF              = "cutoff";
+    public static final int DECADE_CUTOFF          = 20;
+    public static final int ERA_CUTOFF             = 100;
 }

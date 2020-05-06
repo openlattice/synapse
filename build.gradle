@@ -1,3 +1,9 @@
+import jdk.jshell.Eval
+
+import java.util.regex.MatchResult
+import java.util.regex.Matcher
+import java.util.regex.Pattern
+
 plugins {
     id "application"
     id "java"
@@ -98,12 +104,17 @@ sourceCompatibility = JavaVersion.VERSION_11
 targetCompatibility = JavaVersion.VERSION_11
 
 run {
-    if (S_ARGS != null) {
+    if (System.getProperty("exec.args") != null) {
+        Pattern pat = Pattern.compile("[^\\s\"']+|\"([^\"]*)\"|'([^']*)'");
+        List<String> execArgs = new ArrayList<String> ();
+        MatchResult matcher = pat.matcher(System.getProperty("exec.args"));
+        while (((Matcher)matcher).find()){
+            execArgs.add(matcher.group(0))
+        }
+        args execArgs
+    } else if (S_ARGS != null) {
         args S_ARGS.split()
-    } else if (System.getProperty("exec.args") != null) {
-        args System.getProperty("exec.args").split()
-    }
-    if (project.hasProperty('appArgs')) {
+    } else if (project.hasProperty('appArgs')) {
         args Eval.me(appArgs)
     }
 

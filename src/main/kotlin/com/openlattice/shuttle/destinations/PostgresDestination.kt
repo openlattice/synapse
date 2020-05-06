@@ -92,7 +92,7 @@ class PostgresDestination(
                         val partitions = entitySet.partitions.toList()
 
                         val baseVersion = System.currentTimeMillis()
-                        val tombstoneVersion = -baseVersion
+                        val tombstoneVersion = baseVersion
                         val writeVersion = baseVersion + 1
                         val relevantPropertyTypes = entityTypes
                                 .getValue(entitySets.getValue(entitySetId).entityTypeId)
@@ -245,10 +245,9 @@ class PostgresDestination(
     private fun normalize(entityKeyIds: Map<EntityKey, UUID>, entity: Entity): Pair<UUID, Map<UUID, Set<Any>>> {
         val sw = Stopwatch.createStarted()
         val propertyValues = mapper.readValue<Map<UUID, Set<Any>>>(mapper.writeValueAsBytes(entity.details))
-        val validatedPropertyValues = Multimaps.asMap(
-                JsonDeserializer.validateFormatAndNormalize(propertyValues, propertyTypes) {
+        val validatedPropertyValues = JsonDeserializer.validateFormatAndNormalize(propertyValues, propertyTypes) {
                     "Error validating during integration"
-                })
+                }
         logger.debug("Normalizing took {} ms", sw.elapsed(TimeUnit.MILLISECONDS))
         return entityKeyIds.getValue(entity.key) to validatedPropertyValues
     }
