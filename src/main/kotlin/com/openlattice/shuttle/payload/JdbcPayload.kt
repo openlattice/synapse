@@ -14,7 +14,7 @@ import java.util.TimeZone
 
 private val logger = LoggerFactory.getLogger(JdbcPayload::class.java)
 const val DEFAULT_PERMITS_PER_SECOND = 10_000.0
-internal const val DEFAULT_FETCH_SIZE = 50000
+internal const val DEFAULT_FETCH_SIZE = 50_000
 
 
 /**

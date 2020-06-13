@@ -32,10 +32,7 @@ import com.openlattice.data.EntityKey
 import com.openlattice.data.UpdateType
 import com.openlattice.data.integration.Association
 import com.openlattice.data.integration.Entity
-import com.openlattice.data.storage.buildUpsertEntitiesAndLinkedData
-import com.openlattice.data.storage.getPartition
-import com.openlattice.data.storage.updateVersionsForPropertyTypesInEntitiesInEntitySet
-import com.openlattice.data.storage.upsertPropertyValueSql
+import com.openlattice.data.storage.*
 import com.openlattice.data.util.PostgresDataHasher
 import com.openlattice.edm.EntitySet
 import com.openlattice.edm.type.EntityType
@@ -46,6 +43,7 @@ import com.openlattice.postgres.JsonDeserializer
 import com.openlattice.postgres.PostgresArrays
 import com.zaxxer.hikari.HikariDataSource
 import org.apache.olingo.commons.api.edm.EdmPrimitiveTypeKind
+import org.postgresql.util.PSQLException
 import org.slf4j.LoggerFactory
 import java.security.InvalidParameterException
 import java.sql.Connection
@@ -75,6 +73,7 @@ class PostgresDestination(
         return hds.connection.use { connection ->
             val sw = Stopwatch.createStarted()
             val upsertEntities = connection.prepareStatement(buildUpsertEntitiesAndLinkedData())
+            val lockEntities = connection.prepareStatement(lockEntitiesInIdsTable)
             val upsertPropertyValues = mutableMapOf<UUID, PreparedStatement>()
             val updatePropertyValueVersion = connection.prepareStatement(
                     updateVersionsForPropertyTypesInEntitiesInEntitySet()
@@ -153,7 +152,9 @@ class PostgresDestination(
                                     )
 
                                     commitEntities(
+                                            connection,
                                             upsertEntities,
+                                            lockEntities,
                                             entitySetId,
                                             partition,
                                             entityKeyIdsArr,
@@ -192,8 +193,8 @@ class PostgresDestination(
     ): Long {
         val sw = Stopwatch.createStarted()
         val dataEdgeKeys = data.map {
-            val srcDataKey = EntityDataKey(it.src.entitySetId,  entityKeyIds.getValue(it.src))
-            val dstDataKey = EntityDataKey(it.dst.entitySetId,  entityKeyIds.getValue(it.dst))
+            val srcDataKey = EntityDataKey(it.src.entitySetId, entityKeyIds.getValue(it.src))
+            val dstDataKey = EntityDataKey(it.dst.entitySetId, entityKeyIds.getValue(it.dst))
             val edgeDataKey = EntityDataKey(it.key.entitySetId, entityKeyIds.getValue(it.key))
             DataEdgeKey(srcDataKey, dstDataKey, edgeDataKey)
         }.toSet()
@@ -246,8 +247,8 @@ class PostgresDestination(
         val sw = Stopwatch.createStarted()
         val propertyValues = mapper.readValue<Map<UUID, Set<Any>>>(mapper.writeValueAsBytes(entity.details))
         val validatedPropertyValues = JsonDeserializer.validateFormatAndNormalize(propertyValues, propertyTypes) {
-                    "Error validating during integration"
-                }
+            "Error validating during integration"
+        }
         logger.debug("Normalizing took {} ms", sw.elapsed(TimeUnit.MILLISECONDS))
         return entityKeyIds.getValue(entity.key) to validatedPropertyValues
     }
@@ -344,27 +345,43 @@ class PostgresDestination(
     }
 
     private fun commitEntities(
+            connection: Connection,
             upsertEntities: PreparedStatement,
+            lockEntities: PreparedStatement,
             entitySetId: UUID,
             partition: Int,
             entityKeyIdsArr: java.sql.Array,
             versionArray: java.sql.Array,
             version: Long
     ): Int {
-        //Make data visible by marking new version in ids table.
+        connection.autoCommit = false
+        try {
+            lockEntities.setObject(1, entitySetId)
+            lockEntities.setArray(2, entityKeyIdsArr)
+            lockEntities.setInt(3, partition)
+            lockEntities.executeQuery()
 
-        upsertEntities.setObject(1, versionArray)
-        upsertEntities.setObject(2, version)
-        upsertEntities.setObject(3, version)
-        upsertEntities.setObject(4, entitySetId)
-        upsertEntities.setArray(5, entityKeyIdsArr)
-        upsertEntities.setInt(6, partition)
-        upsertEntities.setInt(7, partition)
-        upsertEntities.setLong(8, version)
+            //Make data visible by marking new version in ids table.
 
-        val updatedLinkedEntities = upsertEntities.executeUpdate()
-        logger.info("Updated $updatedLinkedEntities linked entities as part of insert.")
-        return updatedLinkedEntities
+            upsertEntities.setObject(1, versionArray)
+            upsertEntities.setObject(2, version)
+            upsertEntities.setObject(3, version)
+            upsertEntities.setObject(4, entitySetId)
+            upsertEntities.setArray(5, entityKeyIdsArr)
+            upsertEntities.setInt(6, partition)
+            upsertEntities.setInt(7, partition)
+            upsertEntities.setLong(8, version)
+
+            val updatedLinkedEntities = upsertEntities.executeUpdate()
+            connection.commit()
+            connection.autoCommit = true
+            logger.info("Updated $updatedLinkedEntities linked entities as part of insert.")
+            return updatedLinkedEntities
+        } catch (ex: PSQLException) {
+            //Should be pretty rare.
+            connection.rollback()
+            throw ex
+        }
     }
 
     private fun getPropertyHash(
