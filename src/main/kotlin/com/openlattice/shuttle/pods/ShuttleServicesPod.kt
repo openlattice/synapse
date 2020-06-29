@@ -174,7 +174,7 @@ class ShuttleServicesPod {
 
     @Bean
     fun dbcs(): DbCredentialService {
-        return DbCredentialService(hazelcastInstance, pgUserApi)
+        return DbCredentialService(hazelcastInstance)
     }
 
     @Bean
