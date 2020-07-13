@@ -33,6 +33,7 @@ import com.openlattice.data.UpdateType
 import com.openlattice.data.integration.Association
 import com.openlattice.data.integration.Entity
 import com.openlattice.data.storage.*
+import com.openlattice.data.storage.partitions.getPartition
 import com.openlattice.data.util.PostgresDataHasher
 import com.openlattice.edm.EntitySet
 import com.openlattice.edm.type.EntityType
@@ -67,7 +68,9 @@ class PostgresDestination(
     }
 
     override fun integrateEntities(
-            data: Collection<Entity>, entityKeyIds: Map<EntityKey, UUID>, updateTypes: Map<UUID, UpdateType>
+            data: Collection<Entity>,
+            entityKeyIds: Map<EntityKey, UUID>,
+            updateTypes: Map<UUID, UpdateType>
     ): Long {
 
         return hds.connection.use { connection ->
@@ -157,6 +160,7 @@ class PostgresDestination(
                                             lockEntities,
                                             entitySetId,
                                             partition,
+                                            entityMap.keys,
                                             entityKeyIdsArr,
                                             writeVersionArray,
                                             writeVersion
@@ -350,16 +354,21 @@ class PostgresDestination(
             lockEntities: PreparedStatement,
             entitySetId: UUID,
             partition: Int,
+            entityKeyIds: Set<UUID>,
             entityKeyIdsArr: java.sql.Array,
             versionArray: java.sql.Array,
             version: Long
     ): Int {
-        connection.autoCommit = false
-        try {
-            lockEntities.setObject(1, entitySetId)
-            lockEntities.setArray(2, entityKeyIdsArr)
-            lockEntities.setInt(3, partition)
-            lockEntities.executeQuery()
+        return try {
+            connection.autoCommit = false
+            entityKeyIds.sorted().forEach { id ->
+                lockEntities.setObject(1, entitySetId)
+                lockEntities.setObject(2, id)
+                lockEntities.setInt(3, partition)
+                lockEntities.addBatch()
+            }
+            val lockCount = lockEntities.executeBatch()
+            logger.info("Successfully locked batch of $lockCount entities for update.")
 
             //Make data visible by marking new version in ids table.
 
@@ -374,13 +383,14 @@ class PostgresDestination(
 
             val updatedLinkedEntities = upsertEntities.executeUpdate()
             connection.commit()
-            connection.autoCommit = true
             logger.info("Updated $updatedLinkedEntities linked entities as part of insert.")
-            return updatedLinkedEntities
+            updatedLinkedEntities
         } catch (ex: PSQLException) {
             //Should be pretty rare.
             connection.rollback()
             throw ex
+        } finally {
+            connection.autoCommit = true
         }
     }
 
