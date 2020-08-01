@@ -21,11 +21,9 @@
 
 package com.openlattice.shuttle.destinations
 
-import com.openlattice.data.*
+import com.openlattice.data.DataEdgeKey
+import com.openlattice.data.S3Api
 import com.openlattice.data.integration.S3EntityData
-import org.slf4j.LoggerFactory
-
-private val logger = LoggerFactory.getLogger(PostgresS3Destination::class.java)
 
 /**
  *

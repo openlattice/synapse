@@ -58,7 +58,6 @@ class RestDestination(
             entityKeyIds: Map<EntityKey, UUID>,
             updateTypes: Map<UUID, UpdateType>
     ): Long {
-        val entities = data.map { Entity(it.key, it.details) }
         val edges = data.map {
             val srcDataKey = EntityDataKey(it.src.entitySetId,  entityKeyIds.getValue(it.src))
             val dstDataKey = EntityDataKey(it.dst.entitySetId,  entityKeyIds.getValue(it.dst))
@@ -66,10 +65,9 @@ class RestDestination(
             DataEdgeKey(srcDataKey, dstDataKey, edgeDataKey)
         }.toSet()
 
-        return integrateEntities(entities, entityKeyIds, updateTypes) +
-                attempt(ExponentialBackoff(MAX_DELAY), MAX_RETRY_COUNT) {
-                    dataApi.createEdges(edges).toLong()
-                }
+        return attempt(ExponentialBackoff(MAX_DELAY), MAX_RETRY_COUNT) {
+            dataApi.createEdges(edges).toLong()
+        }
     }
 
     override fun accepts(): StorageDestination {

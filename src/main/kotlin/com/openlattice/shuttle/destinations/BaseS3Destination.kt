@@ -85,7 +85,6 @@ abstract class BaseS3Destination(
             data: Collection<Association>, entityKeyIds: Map<EntityKey, UUID>, updateTypes: Map<UUID, UpdateType>
     ): Long {
         return StopWatch("Uploading ${data.size} edges to s3").use {
-            val entities = data.map { Entity(it.key, it.details) }
 
             val edges = data.map {
                 val srcDataKey = EntityDataKey(it.src.entitySetId, entityKeyIds.getValue(it.src))
@@ -93,7 +92,7 @@ abstract class BaseS3Destination(
                 val edgeDataKey = EntityDataKey(it.key.entitySetId, entityKeyIds.getValue(it.key))
                 DataEdgeKey(srcDataKey, dstDataKey, edgeDataKey)
             }.toSet()
-            integrateEntities(entities, entityKeyIds, updateTypes) + createAssociations(edges)
+            createAssociations(edges)
         }
     }
 

@@ -25,15 +25,16 @@ import com.dataloom.mappers.ObjectMappers
 import com.fasterxml.jackson.module.kotlin.readValue
 import com.google.common.base.Stopwatch
 import com.google.common.collect.ImmutableList
-import com.google.common.collect.Multimaps
 import com.openlattice.data.DataEdgeKey
 import com.openlattice.data.EntityDataKey
 import com.openlattice.data.EntityKey
 import com.openlattice.data.UpdateType
 import com.openlattice.data.integration.Association
 import com.openlattice.data.integration.Entity
-import com.openlattice.data.storage.*
 import com.openlattice.data.storage.partitions.getPartition
+import com.openlattice.data.storage.updateEntitySql
+import com.openlattice.data.storage.updateVersionsForPropertyTypesInEntitiesInEntitySet
+import com.openlattice.data.storage.upsertPropertyValueSql
 import com.openlattice.data.util.PostgresDataHasher
 import com.openlattice.edm.EntitySet
 import com.openlattice.edm.type.EntityType
@@ -75,14 +76,9 @@ class PostgresDestination(
 
         return hds.connection.use { connection ->
             val sw = Stopwatch.createStarted()
-            val upsertEntities = connection.prepareStatement(buildUpsertEntitiesAndLinkedData())
-            val lockEntities = connection.prepareStatement(lockEntitiesInIdsTable)
             val upsertPropertyValues = mutableMapOf<UUID, PreparedStatement>()
             val updatePropertyValueVersion = connection.prepareStatement(
                     updateVersionsForPropertyTypesInEntitiesInEntitySet()
-            )
-            val tombstoneLinks = connection.prepareStatement(
-                    updateVersionsForPropertyTypesInEntitiesInEntitySet(linking = true)
             )
             val count = data
                     .groupBy({ it.entitySetId }, { normalize(entityKeyIds, it) })
@@ -115,26 +111,23 @@ class PostgresDestination(
                                 esSw.elapsed(TimeUnit.MILLISECONDS)
                         )
                         val esCount = entities.groupBy { getPartition(it.first, partitions) }
+                                .toSortedMap()
                                 .map { (partition, entityPairs) ->
                                     val partSw = Stopwatch.createStarted()
                                     val entityMap = entityPairs.toMap()
                                     val entityKeyIdsArr = PostgresArrays.createUuidArray(connection, entityMap.keys)
-                                    val partitionsArr = PostgresArrays.createIntArray(
-                                            connection, entityMap.keys.map { getPartition(it, partitions) }
-                                    )
+                                    val partitionArr = PostgresArrays.createIntArray(connection, listOf(partition))
 
                                     when (updateTypes.getValue(entitySetId)) {
                                         UpdateType.Replace, UpdateType.PartialReplace -> tombstone(
                                                 updatePropertyValueVersion,
-                                                tombstoneLinks,
                                                 entitySet,
                                                 entityKeyIdsArr,
-                                                partitionsArr,
+                                                partitionArr,
                                                 propertyTypeIdsArr,
                                                 tombstoneVersion
                                         )
                                     }
-
 
                                     val committedProperties = upsertEntities(
                                             connection,
@@ -156,8 +149,6 @@ class PostgresDestination(
 
                                     commitEntities(
                                             connection,
-                                            upsertEntities,
-                                            lockEntities,
                                             entitySetId,
                                             partition,
                                             entityMap.keys,
@@ -203,18 +194,10 @@ class PostgresDestination(
             DataEdgeKey(srcDataKey, dstDataKey, edgeDataKey)
         }.toSet()
         val numCreatedEdges = createEdges(dataEdgeKeys)
-        val numIntegratedEdges = integrateEntities(
-                data.map { Entity(it.key, it.details) }.toSet(),
-                entityKeyIds,
-                updateTypes
-        )
-
-        if (numCreatedEdges != numIntegratedEdges) {
-            logger.warn("Created $numCreatedEdges edges, but only integrated $numIntegratedEdges.")
-        }
 
         logger.info(
-                "Integrated ${data.size} edges and update $numIntegratedEdges rows in {} ms.",
+                "Integrated {} edges in {} ms.",
+                numCreatedEdges,
                 sw.elapsed(TimeUnit.MILLISECONDS)
         )
 
@@ -290,9 +273,6 @@ class PostgresDestination(
                     val dataType = propertyTypes.getValue(propertyTypeId).datatype
 
                     val (propertyHash, insertValue) = getPropertyHash(
-                            entitySetId,
-                            entityKeyId,
-                            propertyTypeId,
                             value,
                             dataType
                     )
@@ -314,7 +294,6 @@ class PostgresDestination(
 
     private fun tombstone(
             updatePropertyValueVersion: PreparedStatement,
-            tombstoneLinks: PreparedStatement,
             entitySet: EntitySet,
             entityKeyIdsArr: java.sql.Array,
             partitionsArr: java.sql.Array,
@@ -327,31 +306,18 @@ class PostgresDestination(
         updatePropertyValueVersion.setLong(2, -version)
         updatePropertyValueVersion.setLong(3, -version)
         updatePropertyValueVersion.setObject(4, entitySetId)
-        updatePropertyValueVersion.setArray(5, propertyTypeIdsArr)
-        updatePropertyValueVersion.setArray(6, entityKeyIdsArr)
-        updatePropertyValueVersion.setArray(7, partitionsArr)
-
-        tombstoneLinks.setLong(1, -version)
-        tombstoneLinks.setLong(2, -version)
-        tombstoneLinks.setLong(3, -version)
-        tombstoneLinks.setObject(4, entitySetId)
-        tombstoneLinks.setArray(5, propertyTypeIdsArr)
-        tombstoneLinks.setArray(6, entityKeyIdsArr)
-        tombstoneLinks.setArray(7, partitionsArr)
-
+        updatePropertyValueVersion.setArray(5, partitionsArr)
+        updatePropertyValueVersion.setArray(6, propertyTypeIdsArr)
+        updatePropertyValueVersion.setArray(7, entityKeyIdsArr)
 
         val numUpdated = updatePropertyValueVersion.executeUpdate()
-        val linksUpdated = tombstoneLinks.executeUpdate()
 
         logger.info("Tombstoned $numUpdated properties in ${entitySet.name} with version $version ")
-        logger.info("Tombstoned $linksUpdated linked properties in ${entitySet.name} with version $version")
 
     }
 
     private fun commitEntities(
             connection: Connection,
-            upsertEntities: PreparedStatement,
-            lockEntities: PreparedStatement,
             entitySetId: UUID,
             partition: Int,
             entityKeyIds: Set<UUID>,
@@ -359,45 +325,25 @@ class PostgresDestination(
             versionArray: java.sql.Array,
             version: Long
     ): Int {
-        return try {
-            connection.autoCommit = false
-            entityKeyIds.sorted().forEach { id ->
-                lockEntities.setObject(1, entitySetId)
-                lockEntities.setObject(2, id)
-                lockEntities.setInt(3, partition)
-                lockEntities.addBatch()
+
+            val ps = connection.prepareStatement(updateEntitySql)
+
+            entityKeyIds.sorted().forEach { entityKeyId ->
+                ps.setArray(1, versionArray)
+                ps.setObject(2, version)
+                ps.setObject(3, version)
+                ps.setObject(4, entitySetId)
+                ps.setObject(5, entityKeyId)
+                ps.setInt(6, partition)
+                ps.addBatch()
             }
-            val lockCount = lockEntities.executeBatch()
-            logger.info("Successfully locked batch of $lockCount entities for update.")
+            val numUpdates = ps.executeBatch().sum()
 
-            //Make data visible by marking new version in ids table.
-
-            upsertEntities.setObject(1, versionArray)
-            upsertEntities.setObject(2, version)
-            upsertEntities.setObject(3, version)
-            upsertEntities.setObject(4, entitySetId)
-            upsertEntities.setArray(5, entityKeyIdsArr)
-            upsertEntities.setInt(6, partition)
-            upsertEntities.setInt(7, partition)
-            upsertEntities.setLong(8, version)
-
-            val updatedLinkedEntities = upsertEntities.executeUpdate()
-            connection.commit()
-            logger.info("Updated $updatedLinkedEntities linked entities as part of insert.")
-            updatedLinkedEntities
-        } catch (ex: PSQLException) {
-            //Should be pretty rare.
-            connection.rollback()
-            throw ex
-        } finally {
-            connection.autoCommit = true
-        }
+            logger.info("Updated $numUpdates entities as part of insert.")
+            return numUpdates
     }
 
     private fun getPropertyHash(
-            entitySetId: UUID,
-            entityKeyId: UUID,
-            propertyTypeId: UUID,
             value: Any,
             dataType: EdmPrimitiveTypeKind
     ): Pair<ByteArray, Any> {

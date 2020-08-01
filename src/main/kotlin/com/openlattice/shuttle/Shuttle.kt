@@ -32,24 +32,25 @@ import com.google.common.collect.Sets
 import com.google.common.util.concurrent.ListeningExecutorService
 import com.google.common.util.concurrent.MoreExecutors
 import com.hazelcast.core.HazelcastInstance
-import com.hazelcast.core.IMap
+import com.hazelcast.map.IMap
 import com.openlattice.ApiUtil
 import com.openlattice.client.RetrofitFactory
 import com.openlattice.data.DataIntegrationApi
 import com.openlattice.data.EntityKey
 import com.openlattice.data.EntityKeyIdService
 import com.openlattice.data.UpdateType
-import com.openlattice.data.integration.*
-import com.openlattice.shuttle.destinations.PostgresDestination
+import com.openlattice.data.integration.Association
+import com.openlattice.data.integration.Entity
 import com.openlattice.edm.EntitySet
 import com.openlattice.edm.type.EntityType
 import com.openlattice.edm.type.PropertyType
 import com.openlattice.hazelcast.HazelcastMap
+import com.openlattice.hazelcast.processors.shuttle.UpdateIntegrationStatusEntryProcessor
 import com.openlattice.retrofit.RhizomeRetrofitCallException
 import com.openlattice.shuttle.destinations.AddressedDataHolder
 import com.openlattice.shuttle.destinations.IntegrationDestination
+import com.openlattice.shuttle.destinations.PostgresDestination
 import com.openlattice.shuttle.destinations.StorageDestination
-import com.openlattice.hazelcast.processors.shuttle.UpdateIntegrationStatusEntryProcessor
 import com.openlattice.shuttle.logs.Blackbox
 import com.openlattice.shuttle.logs.BlackboxProperty
 import com.openlattice.shuttle.payload.Payload
@@ -260,8 +261,7 @@ class Shuttle (
             val ekidGenStartingUpdate = "Starting entity key id generation in thread ${Thread.currentThread().id}"
             writeLog(flight.name, setOf(ekidGenStartingUpdate), IntegrationStatus.IN_PROGRESS)
             val ekSw = Stopwatch.createStarted()
-            val entityKeys = (batch.entities.flatMap { e -> e.value.map { it.key } }
-                    + batch.associations.flatMap { it.value.map { assoc -> assoc.key } }).toSet()
+            val entityKeys = batch.entities.flatMap { e -> e.value.map { it.key } }.toSet()
             val entityKeyIds = attempt(ExponentialBackoff(MAX_DELAY), MAX_RETRIES) {
                 entityKeys.zip(getEntityKeyIds(entityKeys)).toMap()
             }
@@ -350,25 +350,30 @@ class Shuttle (
 
     private fun buildPropertiesFromPropertyDefinitions(
             row: Map<String, Any?>,
-            propertyDefinitions: Collection<PropertyDefinition>
+            entityDefinition: EntityDefinition
     ): Pair<MutableMap<UUID, MutableSet<Any>>, MutableMap<StorageDestination, MutableMap<UUID, MutableSet<Any>>>> {
 
+        val propertyDefinitions = entityDefinition.properties
         val properties =  Maps.newHashMapWithExpectedSize<UUID, MutableSet<Any>>(propertyDefinitions.size)
         val addressedProperties = Maps.newLinkedHashMapWithExpectedSize<StorageDestination, MutableMap<UUID, MutableSet<Any>>>(1)
 
         for (propertyDefinition in propertyDefinitions) {
             val propertyValue = propertyDefinition.propertyValue.apply(row)
 
-            if (propertyValue == null || !((propertyValue !is String) || propertyValue.isNotBlank())) {
+            if (propertyValue == null || ((propertyValue is String) && propertyValue.isBlank()) ) {
                 continue
             }
 
             val propertyType = propertyTypes.getValue(propertyDefinition.fullQualifiedName)
 
-            val storageDestination = propertyDefinition.storageDestination.orElseGet {
-                when (propertyType.datatype) {
-                    EdmPrimitiveTypeKind.Binary -> binaryDestination
-                    else -> if (parameters.postgres.enabled) StorageDestination.POSTGRES else StorageDestination.REST
+            val storageDestination = if ( entityDefinition.associateOnly ) {
+                StorageDestination.NO_OP
+            } else {
+                propertyDefinition.storageDestination.orElseGet {
+                    when (propertyType.datatype) {
+                        EdmPrimitiveTypeKind.Binary -> binaryDestination
+                        else -> if (parameters.postgres.enabled) StorageDestination.POSTGRES else StorageDestination.REST
+                    }
                 }
             }
 
@@ -398,6 +403,9 @@ class Shuttle (
         return Pair(properties, addressedProperties)
     }
 
+    /**
+     * HERE BE DARGONS
+     */
     private fun impulse(flight: Flight, batch: List<Map<String, Any?>>, batchNumber: Long): AddressedDataHolder {
         val addressedDataHolder = AddressedDataHolder(
                 Maps.newLinkedHashMapWithExpectedSize(batch.size * flight.entities.size),
@@ -418,7 +426,7 @@ class Shuttle (
                 }
 
                 val (properties, addressedProperties) = buildPropertiesFromPropertyDefinitions(
-                        row, entityDefinition.properties
+                        row, entityDefinition
                 )
 
                 /*
@@ -470,7 +478,7 @@ class Shuttle (
                 if ((wasCreated[associationDefinition.srcAlias]!! && wasCreated[associationDefinition.dstAlias]!!)) {
 
                     val (properties, addressedProperties) = buildPropertiesFromPropertyDefinitions(
-                            row, associationDefinition.properties
+                            row, associationDefinition
                     )
 
                     val entityId = associationDefinition.generator
@@ -487,9 +495,12 @@ class Shuttle (
                         val src = aliasesToEntityKey[associationDefinition.srcAlias]
                         val dst = aliasesToEntityKey[associationDefinition.dstAlias]
                         addressedProperties.forEach { (storageDestination, data) ->
+                            addressedDataHolder.entities
+                                    .getOrPut(storageDestination) { mutableSetOf() }
+                                    .add(Entity(key, data))
                             addressedDataHolder.associations
                                     .getOrPut(storageDestination) { mutableSetOf() }
-                                    .add(Association(key, src, dst, data))
+                                    .add(Association(key, src, dst))
                         }
                     } else {
                         val blankEntityIdError = "Encountered blank entity id for entity set ${associationDefinition.entitySetName}"

@@ -71,9 +71,10 @@ class IntegrationService(
     private val jobQueue = HazelcastQueue.QUEUED_INTEGRATION_JOBS.getQueue(hazelcastInstance)
     private val semaphore = Semaphore(threadCount)
     private val executor = MoreExecutors.listeningDecorator(Executors.newFixedThreadPool(threadCount))
-    private val statusPredicate = Predicates.or<UUID,IntegrationJob>(
-            Predicates.equal<UUID,IntegrationJob>(INTEGRATION_STATUS, IntegrationStatus.IN_PROGRESS),
-            Predicates.equal<UUID,IntegrationJob>(INTEGRATION_STATUS, IntegrationStatus.QUEUED)
+
+    private val statusPredicate = Predicates.or<UUID, IntegrationJob>(
+            Predicates.equal<UUID, IntegrationJob>(INTEGRATION_STATUS, IntegrationStatus.IN_PROGRESS),
+            Predicates.equal<UUID, IntegrationJob>(INTEGRATION_STATUS, IntegrationStatus.QUEUED)
     )
 
     companion object {
