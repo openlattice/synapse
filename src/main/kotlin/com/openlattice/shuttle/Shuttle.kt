@@ -41,6 +41,7 @@ import com.openlattice.data.EntityKeyIdService
 import com.openlattice.data.UpdateType
 import com.openlattice.data.integration.Association
 import com.openlattice.data.integration.Entity
+import com.openlattice.edm.EdmConstants
 import com.openlattice.edm.EntitySet
 import com.openlattice.edm.type.EntityType
 import com.openlattice.edm.type.PropertyType
@@ -74,6 +75,7 @@ import java.util.concurrent.atomic.LongAdder
 const val DEFAULT_UPLOAD_SIZE = 100_000
 const val MAX_DELAY = 8L * 60L * 1000L
 const val MAX_RETRIES = 128
+const val ID_PTID = UUID.fromString()
 
 private val threadCount = 2 * Runtime.getRuntime().availableProcessors()
 private val encoder = Base64.getEncoder()
@@ -82,27 +84,27 @@ private val encoder = Base64.getEncoder()
  *
  * Integration driving logic.
  */
-@SuppressFBWarnings(value= ["RCN_REDUNDANT_NULLCHECK_WOULD_HAVE_BEEN_A_NPE"], justification=":'(")
-class Shuttle (
-        private val environment: RetrofitFactory.Environment,
-        private val isShuttleServer: Boolean,
-        private val flightPlan: Map<Flight, Payload>,
-        private val entitySets: Map<String, EntitySet>,
-        private val entityTypes: Map<UUID, EntityType>,
-        private val propertyTypes: Map<FullQualifiedName, PropertyType>,
-        private val integrationDestinations: Map<StorageDestination, IntegrationDestination>,
-        private val dataIntegrationApi: DataIntegrationApi?,
-        private val tableColsToPrint: Map<Flight, List<String>>,
-        private val parameters: MissionParameters,
-        private val binaryDestination: StorageDestination,
-        blackbox: Blackbox,
-        maybeLogEntitySet: Optional<EntitySet>,
-        maybeJobId: Optional<UUID>,
-        private val idService: EntityKeyIdService?,
-        hazelcastInstance: HazelcastInstance?,
-        private val uploadingExecutor: ListeningExecutorService = MoreExecutors.listeningDecorator(
-                Executors.newFixedThreadPool(threadCount)
-        )
+@SuppressFBWarnings(value = ["RCN_REDUNDANT_NULLCHECK_WOULD_HAVE_BEEN_A_NPE"], justification = ":'(")
+class Shuttle(
+    private val environment: RetrofitFactory.Environment,
+    private val isShuttleServer: Boolean,
+    private val flightPlan: Map<Flight, Payload>,
+    private val entitySets: Map<String, EntitySet>,
+    private val entityTypes: Map<UUID, EntityType>,
+    private val propertyTypes: Map<FullQualifiedName, PropertyType>,
+    private val integrationDestinations: Map<StorageDestination, IntegrationDestination>,
+    private val dataIntegrationApi: DataIntegrationApi?,
+    private val tableColsToPrint: Map<Flight, List<String>>,
+    private val parameters: MissionParameters,
+    private val binaryDestination: StorageDestination,
+    blackbox: Blackbox,
+    maybeLogEntitySet: Optional<EntitySet>,
+    maybeJobId: Optional<UUID>,
+    private val idService: EntityKeyIdService?,
+    hazelcastInstance: HazelcastInstance?,
+    private val uploadingExecutor: ListeningExecutorService = MoreExecutors.listeningDecorator(
+        Executors.newFixedThreadPool(threadCount)
+    )
 ) {
     companion object {
         private val logger = LoggerFactory.getLogger(Shuttle::class.java)
@@ -110,10 +112,10 @@ class Shuttle (
         private val uploadRate = metrics.meter(MetricRegistry.name(Shuttle::class.java, "uploads"))
         private val transformRate = metrics.meter(MetricRegistry.name(Shuttle::class.java, "transforms"))
         private val reporter = Slf4jReporter.forRegistry(metrics)
-                .outputTo(LoggerFactory.getLogger(Shuttle::class.java))
-                .convertRatesTo(TimeUnit.SECONDS)
-                .convertDurationsTo(TimeUnit.MILLISECONDS)
-                .build()
+            .outputTo(LoggerFactory.getLogger(Shuttle::class.java))
+            .convertRatesTo(TimeUnit.SECONDS)
+            .convertDurationsTo(TimeUnit.MILLISECONDS)
+            .build()
 
         init {
             reporter.start(1, TimeUnit.MINUTES)
@@ -134,7 +136,7 @@ class Shuttle (
     init {
         if (blackbox.enabled && isShuttleServer) {
             val jobId = maybeJobId.get()
-            integrationJobs = HazelcastMap.INTEGRATION_JOBS.getMap( hazelcastInstance!! )
+            integrationJobs = HazelcastMap.INTEGRATION_JOBS.getMap(hazelcastInstance!!)
 
             this.writeLog = { name, log, status ->
                 log.forEach { logger.info(it) }
@@ -157,10 +159,10 @@ class Shuttle (
             val logEntityTypeId = logEntitySet.entityTypeId
             val logDataSource = HikariDataSource(HikariConfig(parameters.postgres.config))
             logsDestination = PostgresDestination(
-                    mapOf(logEntitySet.id to logEntitySet),
-                    mapOf(logEntityTypeId to entityTypes.getValue(logEntityTypeId)),
-                    logProperties.map { logProp -> logProp.value.id to logProp.value }.toMap(),
-                    logDataSource
+                mapOf(logEntitySet.id to logEntitySet),
+                mapOf(logEntityTypeId to entityTypes.getValue(logEntityTypeId)),
+                logProperties.map { logProp -> logProp.value.id to logProp.value }.toMap(),
+                logDataSource
             )
 
         } else {
@@ -175,10 +177,10 @@ class Shuttle (
     private val uploadRegulator = Semaphore(threadCount)
 
     private fun takeoff(
-            flight: Flight,
-            payload: Iterable<Map<String, Any?>>,
-            uploadBatchSize: Int,
-            rowColsToPrint: List<String>
+        flight: Flight,
+        payload: Iterable<Map<String, Any?>>,
+        uploadBatchSize: Int,
+        rowColsToPrint: List<String>
     ): Long {
         val takeoffLog = "Takeoff! Starting primary thrusters."
         writeLog(flight.name, setOf(takeoffLog), IntegrationStatus.IN_PROGRESS)
@@ -192,47 +194,48 @@ class Shuttle (
         val minRows = ConcurrentSkipListMap<Long, Map<String, Any?>>()
 
         payload
-                .asSequence()
-                .chunked(uploadBatchSize)
-                .forEach { chunk ->
-                    uploadRegulator.acquire()
-                    uploadingExecutor.submit {
-                        ignition(
-                                chunk,
-                                flight,
-                                integratedEntities,
-                                integratedEdges,
-                                rows,
-                                batchCounter,
-                                minRows,
-                                remaining,
-                                rowColsToPrint,
-                                sw
-                        )
+            .asSequence()
+            .chunked(uploadBatchSize)
+            .forEach { chunk ->
+                uploadRegulator.acquire()
+                uploadingExecutor.submit {
+                    ignition(
+                        chunk,
+                        flight,
+                        integratedEntities,
+                        integratedEdges,
+                        rows,
+                        batchCounter,
+                        minRows,
+                        remaining,
+                        rowColsToPrint,
+                        sw
+                    )
 
-                    }.addListener(Runnable { uploadRegulator.release() }, uploadingExecutor)
-                }
+                }.addListener(Runnable { uploadRegulator.release() }, uploadingExecutor)
+            }
         uploadRegulator.acquire(threadCount)
 
         return StorageDestination.values().map {
-            val integrationStatusUpdate = "Integrated ${integratedEntities.getValue(it)} entities and ${integratedEdges.getValue(it)} " +
-                    "edges in ${sw.elapsed(TimeUnit.MILLISECONDS)} ms for flight ${flight.name} to ${it.name}"
+            val integrationStatusUpdate =
+                "Integrated ${integratedEntities.getValue(it)} entities and ${integratedEdges.getValue(it)} " +
+                        "edges in ${sw.elapsed(TimeUnit.MILLISECONDS)} ms for flight ${flight.name} to ${it.name}"
             writeLog(flight.name, setOf(integrationStatusUpdate), IntegrationStatus.IN_PROGRESS)
             integratedEntities.getValue(it).get() + integratedEdges.getValue(it).get()
         }.sum()
     }
 
     private fun ignition(
-            chunk: List<Map<String, Any?>>,
-            flight: Flight,
-            integratedEntities: MutableMap<StorageDestination, AtomicLong>,
-            integratedEdges: MutableMap<StorageDestination, AtomicLong>,
-            rows: LongAdder,
-            batchCounter: AtomicLong,
-            minRows: ConcurrentSkipListMap<Long, Map<String, Any?>>,
-            remaining: AtomicLong,
-            rowColsToPrint: List<String>,
-            sw: Stopwatch
+        chunk: List<Map<String, Any?>>,
+        flight: Flight,
+        integratedEntities: MutableMap<StorageDestination, AtomicLong>,
+        integratedEdges: MutableMap<StorageDestination, AtomicLong>,
+        rows: LongAdder,
+        batchCounter: AtomicLong,
+        minRows: ConcurrentSkipListMap<Long, Map<String, Any?>>,
+        remaining: AtomicLong,
+        rowColsToPrint: List<String>,
+        sw: Stopwatch
     ) {
         val batchUpdate = "There are ${remaining.incrementAndGet()} batches in process for upload."
         writeLog(flight.name, setOf(batchUpdate), IntegrationStatus.IN_PROGRESS)
@@ -263,47 +266,65 @@ class Shuttle (
             val ekidGenStartingUpdate = "Starting entity key id generation in thread ${Thread.currentThread().id}"
             writeLog(flight.name, setOf(ekidGenStartingUpdate), IntegrationStatus.IN_PROGRESS)
             val ekSw = Stopwatch.createStarted()
-            val entityKeys = batch.entities.flatMap { e -> e.value.map { it.key } }.toSet()
-            val entityKeyIds = attempt(ExponentialBackoff(MAX_DELAY), MAX_RETRIES) {
-                entityKeys.zip(getEntityKeyIds(entityKeys)).toMap()
+
+            val toAssign = batch.entities.flatMap { e ->
+                e.value.filter { it.details[ID_PTID]?.isEmpty() ?: true }.map { it.key }
+            }.toSet()
+
+            val overriden = batch.entities
+                .flatMap { e ->
+                    e.value
+                        .filter { it.details[ID_PTID]?.firstOrNull()!= null }
+                        .map { it.key to UUID.fromString(it.details[ID_PTID]!!.first() as String) }
+                }.toMap()
+
+            //Make sure to clear out openlattice.@id from being written. this should really be checked on backend.
+            batch.entities.forEach { e-> e.value.forEach { it.details.remove(ID_PTID) }  }
+
+            val assignedEntityKeyIds = attempt(ExponentialBackoff(MAX_DELAY), MAX_RETRIES) {
+                toAssign.zip(getEntityKeyIds(toAssign)).toMap()
             }
 
-            val ekidsGeneratedUpdate = "Generated ${entityKeys.size} entity key ids in ${ekSw.elapsed(TimeUnit.MILLISECONDS)} ms"
+            val entityKeyIds = overriden + assignedEntityKeyIds
+
+            val ekidsGeneratedUpdate =
+                "Generated ${toAssign.size} entity key ids in ${ekSw.elapsed(TimeUnit.MILLISECONDS)} ms"
             writeLog(flight.name, setOf(ekidsGeneratedUpdate), IntegrationStatus.IN_PROGRESS)
 
             integrationDestinations.forEach { (storageDestination, integrationDestination) ->
                 if (batch.entities.containsKey(storageDestination)) {
                     integratedEntities.getOrPut(storageDestination) { AtomicLong(0) }.addAndGet(
-                            attempt(ExponentialBackoff(MAX_DELAY), MAX_RETRIES) {
-                                integrationDestination.integrateEntities(
-                                        batch.entities.getValue(storageDestination),
-                                        entityKeyIds,
-                                        updateTypes
-                                )
-                            }
+                        attempt(ExponentialBackoff(MAX_DELAY), MAX_RETRIES) {
+                            integrationDestination.integrateEntities(
+                                batch.entities.getValue(storageDestination),
+                                entityKeyIds,
+                                updateTypes
+                            )
+                        }
                     )
                 }
 
                 if (batch.associations.containsKey(storageDestination)) {
                     integratedEdges.getOrPut(storageDestination) { AtomicLong(0) }.addAndGet(
-                            attempt(ExponentialBackoff(MAX_DELAY), MAX_RETRIES) {
-                                integrationDestination.integrateAssociations(
-                                        batch.associations.getValue(storageDestination),
-                                        entityKeyIds,
-                                        updateTypes
-                                )
-                            }
+                        attempt(ExponentialBackoff(MAX_DELAY), MAX_RETRIES) {
+                            integrationDestination.integrateAssociations(
+                                batch.associations.getValue(storageDestination),
+                                entityKeyIds,
+                                updateTypes
+                            )
+                        }
                     )
                 }
             }
 
             minRows.remove(batch.batchId)
-            uploadRate.mark(entityKeys.size.toLong())
-            val currentBatchDurationUpdate = "Processed current batch ${batch.batchId} in ${ekSw.elapsed(TimeUnit.MILLISECONDS)} ms."
+            uploadRate.mark(entityKeyIds.size.toLong())
+            val currentBatchDurationUpdate =
+                "Processed current batch ${batch.batchId} in ${ekSw.elapsed(TimeUnit.MILLISECONDS)} ms."
             writeLog(flight.name, setOf(currentBatchDurationUpdate), IntegrationStatus.IN_PROGRESS)
 
             logger.info(
-                    "=================================================================================="
+                "=================================================================================="
             )
 
             val totalProcessedUpdate = "Processed ${rows.sum()} rows so far in ${sw.elapsed(TimeUnit.MILLISECONDS)} ms."
@@ -317,19 +338,29 @@ class Shuttle (
             writeLog(flight.name, setOf(currentEdgesProgressUpdate), IntegrationStatus.IN_PROGRESS)
 
             logger.info(
-                    "==================================================================================="
+                "==================================================================================="
             )
 
         } catch (ex: Exception) {
             if (rowColsToPrint.isNotEmpty()) {
-                val earliestUnintegratedRowUpdate = "Earliest unintegrated row:\n" + printRow(minRows.firstEntry().value, rowColsToPrint)
-                writeLog(flight.name, setOf(earliestUnintegratedRowUpdate, ex.stackTrace.toString()), IntegrationStatus.FAILED)
+                val earliestUnintegratedRowUpdate =
+                    "Earliest unintegrated row:\n" + printRow(minRows.firstEntry().value, rowColsToPrint)
+                writeLog(
+                    flight.name,
+                    setOf(earliestUnintegratedRowUpdate, ex.stackTrace.toString()),
+                    IntegrationStatus.FAILED
+                )
             }
             MissionControl.fail(1, flight, ex, listOf(uploadingExecutor))
         } catch (err: OutOfMemoryError) {
             if (rowColsToPrint.isNotEmpty()) {
-                val earliestUnintegratedRowUpdate = "Earliest unintegrated row:\n" + printRow(minRows.firstEntry().value, rowColsToPrint)
-                writeLog(flight.name, setOf(earliestUnintegratedRowUpdate, err.stackTrace.toString()), IntegrationStatus.FAILED)
+                val earliestUnintegratedRowUpdate =
+                    "Earliest unintegrated row:\n" + printRow(minRows.firstEntry().value, rowColsToPrint)
+                writeLog(
+                    flight.name,
+                    setOf(earliestUnintegratedRowUpdate, err.stackTrace.toString()),
+                    IntegrationStatus.FAILED
+                )
             }
             MissionControl.fail(1, flight, err, listOf(uploadingExecutor))
         } finally {
@@ -351,24 +382,25 @@ class Shuttle (
 
 
     private fun buildPropertiesFromPropertyDefinitions(
-            row: Map<String, Any?>,
-            entityDefinition: EntityDefinition
+        row: Map<String, Any?>,
+        entityDefinition: EntityDefinition
     ): Pair<MutableMap<UUID, MutableSet<Any>>, MutableMap<StorageDestination, MutableMap<UUID, MutableSet<Any>>>> {
 
         val propertyDefinitions = entityDefinition.properties
-        val properties =  Maps.newHashMapWithExpectedSize<UUID, MutableSet<Any>>(propertyDefinitions.size)
-        val addressedProperties = Maps.newLinkedHashMapWithExpectedSize<StorageDestination, MutableMap<UUID, MutableSet<Any>>>(1)
+        val properties = Maps.newHashMapWithExpectedSize<UUID, MutableSet<Any>>(propertyDefinitions.size)
+        val addressedProperties =
+            Maps.newLinkedHashMapWithExpectedSize<StorageDestination, MutableMap<UUID, MutableSet<Any>>>(1)
 
         for (propertyDefinition in propertyDefinitions) {
             val propertyValue = propertyDefinition.propertyValue.apply(row)
 
-            if (propertyValue == null || ((propertyValue is String) && propertyValue.isBlank()) ) {
+            if (propertyValue == null || ((propertyValue is String) && propertyValue.isBlank())) {
                 continue
             }
 
             val propertyType = propertyTypes.getValue(propertyDefinition.fullQualifiedName)
 
-            val storageDestination = if ( entityDefinition.associateOnly ) {
+            val storageDestination = if (entityDefinition.associateOnly) {
                 StorageDestination.NO_OP
             } else {
                 propertyDefinition.storageDestination.orElseGet {
@@ -380,27 +412,28 @@ class Shuttle (
             }
 
             var propertyValueAsCollection: Collection<Any> =
-                    if (propertyValue is Collection<*>) propertyValue as Collection<Any>
-                    else ImmutableList.of(propertyValue)
+                if (propertyValue is Collection<*>) propertyValue as Collection<Any>
+                else ImmutableList.of(propertyValue)
 
             if (propertyType.datatype == EdmPrimitiveTypeKind.Binary
-                    && storageDestination == StorageDestination.REST
-                    && environment == RetrofitFactory.Environment.LOCAL) {
+                && storageDestination == StorageDestination.REST
+                && environment == RetrofitFactory.Environment.LOCAL
+            ) {
                 propertyValueAsCollection = propertyValueAsCollection.map {
                     mapOf(
-                            "content-type" to "application/octet-stream",
-                            "data" to encoder.encodeToString(it as ByteArray)
+                        "content-type" to "application/octet-stream",
+                        "data" to encoder.encodeToString(it as ByteArray)
                     )
                 }
             }
             val propertyId = propertyType.id
 
             addressedProperties
-                    .getOrPut(storageDestination) { Maps.newLinkedHashMapWithExpectedSize(propertyDefinitions.size ) }
-                    .getOrPut(propertyId) { Sets.newLinkedHashSetWithExpectedSize(propertyValueAsCollection.size) }
-                    .addAll(propertyValueAsCollection)
+                .getOrPut(storageDestination) { Maps.newLinkedHashMapWithExpectedSize(propertyDefinitions.size) }
+                .getOrPut(propertyId) { Sets.newLinkedHashSetWithExpectedSize(propertyValueAsCollection.size) }
+                .addAll(propertyValueAsCollection)
             properties.getOrPut(propertyId) { Sets.newLinkedHashSetWithExpectedSize(propertyValueAsCollection.size) }
-                    .addAll(propertyValueAsCollection)
+                .addAll(propertyValueAsCollection)
         }
         return Pair(properties, addressedProperties)
     }
@@ -410,9 +443,10 @@ class Shuttle (
      */
     private fun impulse(flight: Flight, batch: List<Map<String, Any?>>, batchNumber: Long): AddressedDataHolder {
         val addressedDataHolder = AddressedDataHolder(
-                Maps.newLinkedHashMapWithExpectedSize(batch.size * flight.entities.size),
-                Maps.newLinkedHashMapWithExpectedSize(batch.size * flight.associations.size),
-                batchNumber)
+            Maps.newLinkedHashMapWithExpectedSize(batch.size * flight.entities.size),
+            Maps.newLinkedHashMapWithExpectedSize(batch.size * flight.associations.size),
+            batchNumber
+        )
 
         batch.forEach { row ->
             val aliasesToEntityKey = Maps.newHashMapWithExpectedSize<String, EntityKey>(flight.entities.size)
@@ -428,7 +462,7 @@ class Shuttle (
                 }
 
                 val (properties, addressedProperties) = buildPropertiesFromPropertyDefinitions(
-                        row, entityDefinition
+                    row, entityDefinition
                 )
 
                 /*
@@ -437,10 +471,10 @@ class Shuttle (
                  */
 
                 val entityId = entityDefinition.generator
-                        .map { it.apply(row) }
-                        .orElseGet {
-                            generateDefaultEntityId(getKeys(entityDefinition.entitySetName), properties)
-                        }
+                    .map { it.apply(row) }
+                    .orElseGet {
+                        generateDefaultEntityId(getKeys(entityDefinition.entitySetName), properties)
+                    }
 
                 if (StringUtils.isNotBlank(entityId) && condition && properties.isNotEmpty()) {
 
@@ -450,8 +484,8 @@ class Shuttle (
                     aliasesToEntityKey[entityDefinition.alias] = key
                     addressedProperties.forEach { (storageDestination, data) ->
                         addressedDataHolder.entities
-                                .getOrPut(storageDestination) { mutableSetOf() }
-                                .add(Entity(key, data))
+                            .getOrPut(storageDestination) { mutableSetOf() }
+                            .add(Entity(key, data))
                     }
                     wasCreated[entityDefinition.alias] = true
                 } else {
@@ -462,7 +496,8 @@ class Shuttle (
             for (associationDefinition in flight.associations) {
 
                 if (associationDefinition.condition.isPresent &&
-                        !(associationDefinition.valueMapper.apply(row) as Boolean)) {
+                    !(associationDefinition.valueMapper.apply(row) as Boolean)
+                ) {
                     continue
                 }
 
@@ -480,14 +515,14 @@ class Shuttle (
                 if ((wasCreated[associationDefinition.srcAlias]!! && wasCreated[associationDefinition.dstAlias]!!)) {
 
                     val (properties, addressedProperties) = buildPropertiesFromPropertyDefinitions(
-                            row, associationDefinition
+                        row, associationDefinition
                     )
 
                     val entityId = associationDefinition.generator
-                            .map { it.apply(row) }
-                            .orElseGet {
-                                generateDefaultEntityId(getKeys(associationDefinition.entitySetName), properties)
-                            }
+                        .map { it.apply(row) }
+                        .orElseGet {
+                            generateDefaultEntityId(getKeys(associationDefinition.entitySetName), properties)
+                        }
 
                     if (StringUtils.isNotBlank(entityId)) {
 
@@ -498,14 +533,15 @@ class Shuttle (
                         val dst = aliasesToEntityKey[associationDefinition.dstAlias]
                         addressedProperties.forEach { (storageDestination, data) ->
                             addressedDataHolder.entities
-                                    .getOrPut(storageDestination) { mutableSetOf() }
-                                    .add(Entity(key, data))
+                                .getOrPut(storageDestination) { mutableSetOf() }
+                                .add(Entity(key, data))
                             addressedDataHolder.associations
-                                    .getOrPut(storageDestination) { mutableSetOf() }
-                                    .add(Association(key, src, dst))
+                                .getOrPut(storageDestination) { mutableSetOf() }
+                                .add(Association(key, src, dst))
                         }
                     } else {
-                        val blankEntityIdError = "Encountered blank entity id for entity set ${associationDefinition.entitySetName}"
+                        val blankEntityIdError =
+                            "Encountered blank entity id for entity set ${associationDefinition.entitySetName}"
                         writeLog(flight.name, setOf(blankEntityIdError), IntegrationStatus.IN_PROGRESS)
                     }
                 }
@@ -538,14 +574,15 @@ class Shuttle (
             logger.info("Executed {} entity writes in flight plan in {} ms.", total, sw.elapsed(TimeUnit.MILLISECONDS))
         } catch (ex: java.lang.Exception) {
             val flightNames = flightPlan.keys.joinToString(", ") { it.name }
-            val exceptionLog = "Encountered exception $ex while integrating flight plan containing flight(s) $flightNames"
+            val exceptionLog =
+                "Encountered exception $ex while integrating flight plan containing flight(s) $flightNames"
             writeLog(flightNames, setOf(exceptionLog, ex.stackTrace.toString()), IntegrationStatus.FAILED)
             if (!isShuttleServer) {
                 // This is here for backwards compatibility.
                 // Should be removed when non-shuttle-server is deprecated
                 MissionControl.fail(1, flightPlan.keys.first(), ex, listOf(uploadingExecutor))
             }
-       } finally {
+        } finally {
             reporter.close()
             uploadingExecutor.shutdownNow()
         }
@@ -567,8 +604,8 @@ class Shuttle (
      * @param key A stable set of ordered primary key property type ids to use for default entity key generation.
      */
     private fun generateDefaultEntityId(
-            key: Set<UUID>,
-            properties: Map<UUID, Set<Any>>
+        key: Set<UUID>,
+        properties: Map<UUID, Set<Any>>
     ): String {
         val keyValuesPresent = key.any { !properties[it].isNullOrEmpty() }
 
@@ -586,7 +623,13 @@ class Shuttle (
         logsDestination.integrateEntities(setOf(entity), mapOf(ek to ekid), mapOf(logEntitySetId to UpdateType.Merge))
     }
 
-    private fun generateLogPropertyData(flightName: String, log: Set<String>, timestamp: OffsetDateTime, status: IntegrationStatus, jobId: UUID): Map<UUID, Set<Any>> {
+    private fun generateLogPropertyData(
+        flightName: String,
+        log: Set<String>,
+        timestamp: OffsetDateTime,
+        status: IntegrationStatus,
+        jobId: UUID
+    ): Map<UUID, Set<Any>> {
         val logPropertyData = mutableMapOf<UUID, Set<Any>>()
         logPropertyData[ptidsByBlackboxProperty.getValue(BlackboxProperty.JOB_ID)] = setOf(jobId)
         logPropertyData[ptidsByBlackboxProperty.getValue(BlackboxProperty.NAME)] = setOf(flightName)
